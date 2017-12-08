@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Management;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -109,8 +110,14 @@ namespace FlashCopy
         {
             try
             {
-                _sourceFolder.CopyTo(infos.Item1.Name, CopyOptions.None, _progressHandler, new ProgressHolder { DriveInfo = infos.Item1, Name = infos.Item2 });
-                infos.Item1.VolumeLabel = "USB_PAG";
+                if (!FormatDrive(infos.Item1.Name.TrimEnd('\\'), "exFAT", quickFormat: true, clusterSize: 8192,
+                    label: "USB_PAG"))
+                {
+                    _errorQueue.Enqueue(Tuple.Create(infos.Item1, infos.Item2, new Exception("Formating failed")));
+                    return;
+                }
+                _sourceFolder.CopyTo(infos.Item1.Name, CopyOptions.None);//, _progressHandler, new ProgressHolder { DriveInfo = infos.Item1, Name = infos.Item2 });
+                //infos.Item1.VolumeLabel = "USB_PAG";
                 _finishedQueue.Enqueue(infos);
             }
             catch (Exception ex)
@@ -158,6 +165,25 @@ namespace FlashCopy
 
                 Thread.Sleep(500);
             }
+        }
+
+        public static bool FormatDrive(string driveLetter,
+            string fileSystem = "NTFS", bool quickFormat = true,
+            int clusterSize = 8192, string label = "", bool enableCompression = false)
+        {
+            if (driveLetter.Length != 2 || driveLetter[1] != ':' || !char.IsLetter(driveLetter[0]))
+                return false;
+
+            //query and format given drive         
+            ManagementObjectSearcher searcher = new ManagementObjectSearcher
+                ($"select * from Win32_Volume WHERE DriveLetter = '{driveLetter}'");
+            foreach (ManagementObject vi in searcher.Get())
+            {
+                var x = vi.InvokeMethod("Format", new object[]
+                    { fileSystem, quickFormat,clusterSize, label, enableCompression });
+            }
+
+            return true;
         }
 
         public class ProgressHolder
